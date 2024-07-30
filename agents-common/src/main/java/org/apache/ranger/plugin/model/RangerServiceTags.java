@@ -21,10 +21,10 @@ package org.apache.ranger.plugin.model;
 
 
 import org.apache.ranger.plugin.util.ServiceTags;
-import org.codehaus.jackson.annotate.JsonAutoDetect;
-import org.codehaus.jackson.annotate.JsonAutoDetect.Visibility;
-import org.codehaus.jackson.annotate.JsonIgnoreProperties;
-import org.codehaus.jackson.map.annotate.JsonSerialize;
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Map;
 
 @JsonAutoDetect(fieldVisibility=Visibility.ANY)
-@JsonSerialize(include=JsonSerialize.Inclusion.NON_EMPTY)
+@JsonInclude(JsonInclude.Include.NON_EMPTY)
 @JsonIgnoreProperties(ignoreUnknown=true)
 public class RangerServiceTags implements java.io.Serializable {
     private static final long serialVersionUID = 1L;
@@ -170,7 +170,7 @@ public class RangerServiceTags implements java.io.Serializable {
             ret = new ServiceTags(toServiceTagsOp(tags.getOp()), tags.getServiceName(),
                                   tags.tagVersion, tags.getTagUpdateTime(), tags.getTagDefinitions(), tags.getTags(),
                                   tags.getServiceResources(), tags.getResourceToTagIds(), false,
-                                  ServiceTags.TagsChangeExtent.ALL);
+                                  ServiceTags.TagsChangeExtent.ALL, false);
         }
 
         return ret;

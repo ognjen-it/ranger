@@ -51,6 +51,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
+import org.apache.hadoop.thirdparty.com.google.common.base.Joiner;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -204,8 +205,6 @@ import org.apache.ranger.view.VXPolicyLabelList;
 import org.apache.ranger.view.VXPortalUser;
 import org.apache.ranger.view.VXString;
 import org.apache.ranger.view.VXUser;
-import org.apache.ranger.view.VXUserList;
-import org.codehaus.jettison.json.JSONException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -216,7 +215,6 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.google.common.base.Joiner;
 
 import static org.apache.ranger.service.RangerBaseModelService.OPERATION_CREATE_CONTEXT;
 
@@ -4508,17 +4506,18 @@ public class ServiceDBStore extends AbstractServiceStore {
 		Map<String, Object> metaDataInfo = new LinkedHashMap<>();
 		UserSessionBase usb = ContextUtil.getCurrentUserSession();
 		String userId = usb!=null ? usb.getLoginId() : null;
+		DateFormat formatter = new SimpleDateFormat("MMM dd, yyyy h:mm:ss a");
 
 		metaDataInfo.put(HOSTNAME, LOCAL_HOSTNAME);
 		metaDataInfo.put(USER_NAME, userId);
-		metaDataInfo.put(TIMESTAMP, MiscUtil.getUTCDateForLocalDate(new Date()));
+		metaDataInfo.put(TIMESTAMP, formatter.format(MiscUtil.getUTCDateForLocalDate(new Date())));
 		metaDataInfo.put(RANGER_VERSION, RangerVersionInfo.getVersion());
 
 		return metaDataInfo;
 	}
 
 	private <T> void writeJson(List<T> objList, String jsonFileName,
-			HttpServletResponse response, JSON_FILE_NAME_TYPE type) throws JSONException, IOException {
+			HttpServletResponse response, JSON_FILE_NAME_TYPE type) throws IOException {
 		response.setContentType("text/json");
 		response.setHeader("Content-Disposition", "attachment; filename="+ jsonFileName);
 		ServletOutputStream out = null;

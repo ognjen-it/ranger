@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 
@@ -36,6 +37,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.orc.OrcFile;
 import org.apache.orc.Reader;
 import org.apache.ranger.audit.destination.FileAuditDestination;
+import org.apache.ranger.audit.model.AuditIndexRecord;
 import org.apache.ranger.audit.model.AuthzAuditEvent;
 import org.apache.ranger.audit.provider.*;
 import org.apache.ranger.audit.queue.AuditAsyncQueue;
@@ -43,8 +45,6 @@ import org.apache.ranger.audit.queue.AuditBatchQueue;
 import org.apache.ranger.audit.queue.AuditFileSpool;
 import org.apache.ranger.audit.queue.AuditQueue;
 import org.apache.ranger.audit.queue.AuditSummaryQueue;
-import org.codehaus.jettison.json.JSONException;
-import org.codehaus.jettison.json.JSONObject;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -736,7 +736,7 @@ public class TestAuditQueue {
 		try {
 			Thread.sleep(40000);
 		} catch (InterruptedException e) {
-			System.out.println(e);
+			logger.error(e.getMessage());
 		}
 		queue.waitToComplete();
 		assertTrue("File created", logFile.exists());
@@ -746,7 +746,9 @@ public class TestAuditQueue {
 	@Test
 	public void testAuditFileQueueSpoolORCRollover(){
 		String appType = "test";
-		int messageToSend = 100000;
+		int messageToSend = 1000;
+		int preRolloverMessagesCount = (int)(0.8*messageToSend);
+		int postRolloverMessagesCount = messageToSend - preRolloverMessagesCount;
 		String spoolFolderName = "target/spool";
 		String logFolderName = "target/testAuditFileQueueSpoolORC";
 		try {
@@ -761,11 +763,7 @@ public class TestAuditQueue {
 		}
 		assertTrue(Files.notExists(Paths.get(spoolFolderName)));
 		assertTrue(Files.notExists(Paths.get(logFolderName)));
-		String subdir = appType + "/" + LocalDate.now().toString().replace("-","");
 		File logFolder = new File(logFolderName);
-		File logSubfolder = new File(logFolder, subdir);
-		String logFileName = "test_ranger_audit.orc";
-		File logFile = new File(logSubfolder, logFileName);
 		Properties props = new Properties();
 		props.put(AuditProviderFactory.AUDIT_IS_ENABLED_PROP, "true");
 		String hdfsPropPrefix = AuditProviderFactory.AUDIT_DEST_BASE + ".hdfs";
@@ -775,6 +773,7 @@ public class TestAuditQueue {
 				"%app-type%_ranger_audit.orc");
 		String orcPrefix = hdfsPropPrefix + ".orc";
 		props.put(orcPrefix+".compression","snappy");
+		//large numbers used here to ensure that file rollover happens because of file rollover seconds and not orc file /related props
 		props.put(orcPrefix+".buffersize",""+100000000000000L);
 		props.put(orcPrefix+".stripesize",""+100000000000000L);
 		props.put(hdfsPropPrefix + ".batch.queuetype","filequeue");
@@ -783,35 +782,53 @@ public class TestAuditQueue {
 		String fileSpoolPrefix = filequeuePrefix + ".filespool";
 		props.put(fileSpoolPrefix+".dir",spoolFolderName);
 		props.put(fileSpoolPrefix+".buffer.size",""+100000000000000L);
-		props.put(fileSpoolPrefix+".file.rollover.sec",""+300);
+		props.put(fileSpoolPrefix+".file.rollover.sec",""+5);
 		AuditProviderFactory factory = new AuditProviderFactory();
 		factory.init(props, appType);
 		AuditHandler queue = factory.getAuditProvider();
-		for (int i = 0; i < messageToSend; i++) {
+		for (int i = 0; i < preRolloverMessagesCount; i++) {
 			queue.log(createEvent());
 			try {
-				Thread.sleep(5);
+				Thread.sleep(10);
 			} catch (InterruptedException e) {
-				System.out.println(e);
+				logger.error(e.getMessage());
 			}
 		}
+		//wait for rollover to happen
 		try {
-			Thread.sleep(40000);
+			Thread.sleep(10000);
 		} catch (InterruptedException e) {
-			System.out.println(e);
+			logger.error(e.getMessage());
+		}
+		//send some more logs
+		for (int i = 0; i < postRolloverMessagesCount; i++) {
+			queue.log(createEvent());
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+				logger.error(e.getMessage());
+			}
 		}
 		queue.waitToComplete();
-		assertTrue("File created", logFile.exists());
-		File[] listOfFiles = logSubfolder.listFiles();
 		int totalLogsOrc = 0;
-		if (listOfFiles != null){
-			for(File f : listOfFiles){
-				if (f.getName().endsWith(".orc")){
-					totalLogsOrc += getOrcFileRowCount(f.getPath());
+		File appSubFolder = new File(logFolder,appType);
+		String[] datewiseSubfolders = appSubFolder.list();
+		logger.info("subfolder list="+ Arrays.toString(datewiseSubfolders));
+		if (datewiseSubfolders != null) {
+			for (String dateSubfolder : datewiseSubfolders){
+				File logSubfolder = new File(appSubFolder, dateSubfolder);
+				File[] listOfFiles = logSubfolder.listFiles();
+				if (listOfFiles != null){
+					for(File f : listOfFiles){
+						if (f.getName().endsWith(".orc")){
+							logger.info("Reading orc file:"+f.getName());
+							totalLogsOrc += getOrcFileRowCount(f.getPath());
+						}
+					}
 				}
 			}
 		}
-		System.out.println("Number of logs in orc="+totalLogsOrc);
+		logger.info("Number of logs in orc="+totalLogsOrc);
 		long totalLogsArchive = 0;
 
 		try {
@@ -824,10 +841,10 @@ public class TestAuditQueue {
 			for(String f: convertedLogFileNames){
 				totalLogsArchive += getLogCountInFile(f);
 			}
-		} catch (IOException | JSONException e) {
+		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
-		System.out.println("Number of logs in archive:"+totalLogsArchive);
+		logger.info("Number of logs in archive:"+totalLogsArchive);
 		assertEquals(totalLogsOrc, totalLogsArchive);
 
 		long notYetConvertedToORCLogsCount = 0;
@@ -846,10 +863,10 @@ public class TestAuditQueue {
 				}
 			}
 		}
-		catch (IOException | JSONException e){
+		catch (IOException e){
 			throw new RuntimeException(e);
 		}
-		System.out.println("Number of logs not converted to ORC:"+notYetConvertedToORCLogsCount);
+		logger.info("Number of logs not converted to ORC:"+notYetConvertedToORCLogsCount);
 		assertEquals(messageToSend, notYetConvertedToORCLogsCount+totalLogsArchive);
 	}
 
@@ -893,15 +910,22 @@ public class TestAuditQueue {
 		return lines;
 	}
 
-	private static List<String> getFileNames(String jsonIndexFile) throws IOException, JSONException {
+	private static List<String> getFileNames(String jsonIndexFile) throws IOException {
 		List<String> fileNames = new ArrayList<>();
 		BufferedReader reader = new BufferedReader(new FileReader(jsonIndexFile));
 		while (true) {
 			String line = reader.readLine();
 			if (line!=null){
-				JSONObject jsonObject = new JSONObject(line);
-				String filePath = (String) jsonObject.get("filePath");
-				fileNames.add(filePath);
+				try {
+					AuditIndexRecord indexRecord = MiscUtil.getMapper().readValue(line, AuditIndexRecord.class);
+					String           filePath    = indexRecord != null ? indexRecord.getFilePath() : null;
+
+					if (filePath != null) {
+						fileNames.add(filePath);
+					}
+				} catch (Exception excp) {
+					excp.printStackTrace(System.out);
+				}
 			}
 			else{
 				break;
